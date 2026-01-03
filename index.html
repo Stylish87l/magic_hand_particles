@@ -307,7 +307,7 @@
                 analyzer.fftSize = 256;
                 source.connect(analyzer);
                 dataArray = new Uint8Array(analyzer.frequencyBinCount);
-            }).catch(() => console.log("Mic denied"));
+            }).catch(() => {});
         }
 
         const geometry = new THREE.BufferGeometry();
@@ -369,7 +369,9 @@
                     x = (i / count) * 60 - 30; y = Math.sin(x * 0.2) * 10; z = (Math.random() - 0.5) * 20;
                 }
                 targets[i3] = x; targets[i3+1] = y; targets[i3+2] = z;
+                positions[i3] = x; positions[i3+1] = y; positions[i3+2] = z;
             }
+            geometry.attributes.position.needsUpdate = true;
         }
         setShape('galaxy');
 
@@ -516,12 +518,12 @@
 
             for (let i = 0; i < state.particleCount; i++) {
                 const i3 = i * 3;
-                pos[i3] += (targets[i3] - pos[i3]) * 0.05;
-                pos[i3+1] += (targets[i3+1] - pos[i3+1]) * 0.05;
-                pos[i3+2] += (targets[i3+2] - pos[i3+2]) * 0.05;
+                pos[i3] += (targets[i3] - pos[i3]) * 0.1;
+                pos[i3+1] += (targets[i3+1] - pos[i3+1]) * 0.1;
+                pos[i3+2] += (targets[i3+2] - pos[i3+2]) * 0.1;
 
                 if (state.useNoise) {
-                    const noise = noise3D(pos[i3]*0.04, pos[i3+1]*0.04, time*0.4) * (0.15 + state.audioLevel * 12);
+                    const noise = Math.sin(pos[i3]*0.04 + time*0.4) * (0.15 + state.audioLevel * 12);
                     pos[i3] += noise; pos[i3+1] += noise;
                 }
 
