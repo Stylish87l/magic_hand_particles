@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Hand Tracking Particle Magic</title>
+    
+    <style>
+        :root {
+            --glass: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.2);
+            --accent: #00f3ff;
+            --text: #ffffff;
+        }
+        
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            color: var(--text);
+            user-select: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #input_video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            opacity: 0;
+            z-index: -1;
+        }
+
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 280px;
+            padding: 20px;
+            background: var(--glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            z-index: 20;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-height: 90vh;
+            overflow-y: auto;
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        #ui-panel.hidden {
+            opacity: 0;
+            transform: translateX(-120%);
+            pointer-events: none;
+        }
+
+        #ui-panel::-webkit-scrollbar { width: 6px; }
+        #ui-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        h1 { font-size: 18px; margin: 0 0 15px 0; text-transform: uppercase; letter-spacing: 2px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+        
+        .control-group { margin-bottom: 12px; }
+        label { font-size: 12px; display: block; margin-bottom: 4px; opacity: 0.7; }
+        
+        select, input[type="range"], input[type="color"] {
+            width: 100%;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 5px;
+            border-radius: 6px;
+            outline: none;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: bold;
+        }
+        button:hover { background: var(--accent); color: black; }
+        
+        .share-btn { background: #4a4ae2; border: none; margin-top: 15px; }
+        .share-btn:hover { background: #6363ff; }
+
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .toggle-label { font-size: 13px; }
+
+        #ui-toggle {
+            position: absolute;
+            top: 20px; left: 20px;
+            z-index: 15;
+            background: var(--glass);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        #btn-close-ui {
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 0;
+            width: auto;
+            margin: 0;
+            cursor: pointer;
+            font-size: 20px;
+            opacity: 0.6;
+        }
+        #btn-close-ui:hover { opacity: 1; background: transparent; color: var(--accent); }
+
+        #share-modal {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #111;
+            padding: 30px;
+            border-radius: 20px;
+            border: 1px solid var(--accent);
+            z-index: 200;
+            display: none;
+            text-align: center;
+            box-shadow: 0 0 50px rgba(0, 243, 255, 0.3);
+        }
+        #share-modal input {
+            width: 100%;
+            padding: 10px;
+            margin: 15px 0;
+            background: #000;
+            border: 1px solid var(--border);
+            color: var(--accent);
+            border-radius: 5px;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            z-index: 5;
+            pointer-events: none;
+            width: 90%;
+        }
+        .instruction-tag {
+            display: inline-block;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin: 2px;
+            border: 1px solid var(--border);
+        }
+
+        #loader {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: var(--accent);
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+                "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+                "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+            }
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <video id="input_video" playsinline muted autoplay></video>
+    <div id="canvas-container"></div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="status-text">Waking up the stars...</div>
+        <button id="start-btn" style="display:none; padding: 12px 40px; border-radius: 30px; background: var(--accent); color: black; border: none; font-weight: bold; margin-top: 20px; cursor: pointer;">ENTER THE VOID</button>
+    </div>
+    
+    <button id="ui-toggle">⚙️ Settings</button>
+
+    <div id="ui-panel">
+        <h1>
+            <span>Labs</span>
+            <button id="btn-close-ui" title="Hide Settings">✕</button>
+        </h1>
+        
+        <div class="control-group">
+            <label>Shape Presets</label>
+            <select id="shape-selector">
+                <option value="galaxy">Galaxy Spiral</option>
+                <option value="heart">Love Heart</option>
+                <option value="sphere">Quantum Sphere</option>
+                <option value="dna">DNA Helix</option>
+                <option value="torus">Torus Knot</option>
+                <option value="cube">Hyper Cube</option>
+                <option value="snow">Snowstorm</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Background</label>
+            <select id="bg-selector">
+                <option value="void">Black Void</option>
+                <option value="stars">Starry Deep Space</option>
+                <option value="cyber">Cyber Grid</option>
+                <option value="aurora">Northern Lights</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Color Mode</label>
+            <select id="color-mode">
+                <option value="dynamic">Rainbow / Velocity</option>
+                <option value="gradient">Gradient Map</option>
+                <option value="solid">Solid Color</option>
+            </select>
+            <input type="color" id="color-picker-1" value="#00f3ff" style="margin-top:5px;">
+            <input type="color" id="color-picker-2" value="#ff00aa" style="margin-top:5px;">
+        </div>
+
+        <div class="control-group">
+            <div class="toggle-row">
+                <span class="toggle-label">Auto Rotation</span>
+                <input type="checkbox" id="toggle-rotate" checked>
+            </div>
+            <div class="toggle-row">
+                <span class="toggle-label">Neon Bloom</span>
+                <input type="checkbox" id="toggle-bloom" checked>
+            </div>
+        </div>
+
+        <button id="btn-reset">Reset View</button>
+        <button id="btn-share" class="share-btn">Save & Share Link</button>
+    </div>
+
+    <div id="share-modal">
+        <h3>Magic Saved!</h3>
+        <p>Send this link to others:</p>
+        <input type="text" id="share-url" readonly>
+        <button id="btn-copy">Copy Link</button>
+        <button id="btn-close-modal" style="background:transparent; color: #777; margin-top:10px;">Close</button>
+    </div>
+
+    <div id="instructions">
+        <span class="instruction-tag">👆 Pinch: Move</span>
+        <span class="instruction-tag">👐 2 Hands Apart: Zoom Inside</span>
+        <span class="instruction-tag">✊ Fists: Collapse</span>
+        <span class="instruction-tag">🖐️ Open: Explode</span>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { initializeApp } from 'firebase/app';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+        import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+
+        /**
+         * FIREBASE CONFIGURATION & INITIALIZATION
+         */
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'magic-hands-app';
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        let user = null;
+
+        /**
+         * APP STATE
+         */
+        const state = {
+            particleCount: 18000,
+            shape: 'galaxy',
+            bg: 'void',
+            colorMode: 'dynamic',
+            color1: new THREE.Color('#00f3ff'),
+            color2: new THREE.Color('#ff00aa'),
+            autoRotate: true,
+            useBloom: true,
+            interaction: {
+                targetScale: 1.0,
+                currentScale: 1.0,
+                isPinching: false,
+                pinchStart: new THREE.Vector3(),
+                objStartPos: new THREE.Vector3(),
+                offset: new THREE.Vector3(),
+                explosion: 0,
+                implosion: 0
+            }
+        };
+
+        /**
+         * RULE 3: Auth Before Queries
+         */
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Firebase Auth failed:", err.message);
+                // Non-blocking fallback: The user can still play with particles even if cloud fails.
+            }
+        };
+
+        onAuthStateChanged(auth, (u) => { 
+            user = u; 
+            if (u) {
+                console.log("Authenticated as:", u.uid);
+                checkAndLoadShare();
+            }
+        });
+
+        // Initialize Auth immediately
+        initAuth();
+
+        async function checkAndLoadShare() {
+            // Guard every Firestore operation (RULE 3)
+            if (!user) return;
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const shareId = urlParams.get('s');
+            
+            if (shareId) {
+                document.getElementById('ui-panel').classList.add('hidden');
+                
+                // RULE 1: Strict Paths
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId);
+                
+                try {
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        state.shape = data.shape;
+                        state.bg = data.bg;
+                        state.colorMode = data.colorMode;
+                        state.color1.set(data.color1);
+                        state.color2.set(data.color2);
+                        
+                        // Sync UI
+                        document.getElementById('shape-selector').value = state.shape;
+                        document.getElementById('bg-selector').value = state.bg;
+                        document.getElementById('color-mode').value = state.colorMode;
+                        document.getElementById('color-picker-1').value = data.color1;
+                        document.getElementById('color-picker-2').value = data.color2;
+                        
+                        generateShape(state.shape);
+                        updateBackground();
+                    }
+                } catch(e) { 
+                    console.warn("Could not load shared state.", e); 
+                }
+            }
+        }
+
+        /**
+         * THREE.JS SCENE SETUP
+         */
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.z = 30;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.85);
+        composer.addPass(bloomPass);
+
+        // Particle System
+        const particlesGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(state.particleCount * 3);
+        const targetPositions = new Float32Array(state.particleCount * 3);
+        const colors = new Float32Array(state.particleCount * 3);
+        const randoms = new Float32Array(state.particleCount * 3);
+        for(let i=0; i<state.particleCount * 3; i++) randoms[i] = (Math.random() - 0.5) * 2;
+
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particlesGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const particleMaterial = new THREE.PointsMaterial({
+            size: 0.25,
+            vertexColors: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true
+        });
+
+        const particleSystem = new THREE.Points(particlesGeometry, particleMaterial);
+        scene.add(particleSystem);
+
+        /**
+         * SHAPE GENERATORS
+         */
+        function generateShape(type) {
+            const count = state.particleCount;
+            for (let i = 0; i < count; i++) {
+                let x, y, z;
+                const i3 = i * 3;
+                if (type === 'galaxy') {
+                    const angle = i * 0.002, radius = (i / count) * 15;
+                    const s = angle * 5 + radius * 0.5;
+                    x = Math.cos(s) * radius + (Math.random()-0.5)*1.5;
+                    y = (Math.random()-0.5) * 2;
+                    z = Math.sin(s) * radius + (Math.random()-0.5)*1.5;
+                } else if (type === 'sphere') {
+                    const u = Math.random(), v = Math.random();
+                    const theta = 2 * Math.PI * u, phi = Math.acos(2 * v - 1), r = 10;
+                    x = r * Math.sin(phi) * Math.cos(theta);
+                    y = r * Math.sin(phi) * Math.sin(theta);
+                    z = r * Math.cos(phi);
+                } else if (type === 'heart') {
+                    const t = Math.random() * Math.PI * 2;
+                    x = 16 * Math.pow(Math.sin(t), 3);
+                    y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                    z = (Math.random() - 0.5) * 5;
+                    x *= 0.6; y *= 0.6;
+                } else if (type === 'dna') {
+                    const t = (i / count) * Math.PI * 10, h = (i / count) * 20 - 10;
+                    const s = i % 2 === 0 ? 0 : Math.PI;
+                    x = Math.cos(t + s) * 4; z = Math.sin(t + s) * 4; y = h;
+                } else if (type === 'torus') {
+                    const t = (i / count) * Math.PI * 2, p = (i / count) * Math.PI * 10;
+                    x = (10 + 3 * Math.cos(p)) * Math.cos(t);
+                    y = (10 + 3 * Math.cos(p)) * Math.sin(t);
+                    z = 3 * Math.sin(p);
+                } else if (type === 'cube') {
+                    x = (Math.random() - 0.5) * 15;
+                    y = (Math.random() - 0.5) * 15;
+                    z = (Math.random() - 0.5) * 15;
+                } else if (type === 'snow') {
+                    x = (Math.random() - 0.5) * 40;
+                    y = (Math.random() - 0.5) * 40;
+                    z = (Math.random() - 0.5) * 40;
+                } else {
+                    x = (Math.random() - 0.5) * 25; y = (Math.random() - 0.5) * 25; z = (Math.random() - 0.5) * 25;
+                }
+                targetPositions[i3] = x; targetPositions[i3+1] = y; targetPositions[i3+2] = z;
+            }
+        }
+        generateShape('galaxy');
+
+        /**
+         * UI CONTROLS
+         */
+        const uiPanel = document.getElementById('ui-panel');
+        const uiToggle = document.getElementById('ui-toggle');
+        const closeUiBtn = document.getElementById('btn-close-ui');
+
+        uiToggle.addEventListener('click', () => uiPanel.classList.remove('hidden'));
+        closeUiBtn.addEventListener('click', () => uiPanel.classList.add('hidden'));
+
+        document.getElementById('shape-selector').addEventListener('change', (e) => {
+            state.shape = e.target.value;
+            generateShape(state.shape);
+        });
+        
+        function updateBackground() {
+            const val = document.getElementById('bg-selector').value;
+            if(val === 'stars') scene.background = new THREE.Color(0x020205);
+            else if(val === 'void') scene.background = new THREE.Color(0x000000);
+            else scene.background = new THREE.Color(0x000505);
+        }
+        document.getElementById('bg-selector').addEventListener('change', updateBackground);
+        document.getElementById('color-mode').addEventListener('change', (e) => state.colorMode = e.target.value);
+        document.getElementById('color-picker-1').addEventListener('change', (e) => state.color1.set(e.target.value));
+        document.getElementById('color-picker-2').addEventListener('change', (e) => state.color2.set(e.target.value));
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            particleSystem.position.set(0,0,0);
+            state.interaction.targetScale = 1;
+        });
+
+        // Loading and Start Logic
+        const startBtn = document.getElementById('start-btn');
+        setTimeout(() => {
+            document.querySelector('.spinner').style.display = 'none';
+            document.querySelector('.status-text').innerText = "System Ready";
+            startBtn.style.display = 'block';
+        }, 1200);
+
+        startBtn.addEventListener('click', async () => {
+             try { await cameraUtils.start(); } catch(e) { console.error("Camera failed", e); }
+             document.getElementById('loader').style.display = 'none';
+        });
+
+        /**
+         * MEDIAPIPE HAND TRACKING LOGIC
+         */
+        function onResults(results) {
+            if (!results.multiHandLandmarks) return;
+            const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            
+            if (results.multiHandLandmarks.length > 0) {
+                const h1 = results.multiHandLandmarks[0];
+                const palmSize = dist(h1[0], h1[9]);
+                const wrist = h1[0];
+                const tips = [h1[8], h1[12], h1[16], h1[20]];
+                const avgTipDist = tips.reduce((a, t) => a + dist(t, wrist), 0) / 4;
+                
+                // Explode (Open Palm) / Implode (Fist)
+                state.interaction.explosion = THREE.MathUtils.lerp(state.interaction.explosion, avgTipDist > palmSize * 2.2 ? 1 : 0, 0.1);
+                state.interaction.implosion = THREE.MathUtils.lerp(state.interaction.implosion, avgTipDist < palmSize * 1.2 ? 1 : 0, 0.1);
+
+                // Pinch to Move
+                const pinch = dist(h1[4], h1[8]);
+                if (pinch < palmSize * 0.5) {
+                    if (!state.interaction.isPinching) {
+                        state.interaction.isPinching = true;
+                        state.interaction.pinchStart.set(h1[8].x, h1[8].y, 0);
+                        state.interaction.objStartPos.copy(particleSystem.position);
+                    }
+                    const vFOV = camera.fov * Math.PI / 180;
+                    const h = 2 * Math.tan(vFOV / 2) * camera.position.z;
+                    const w = h * camera.aspect;
+                    state.interaction.offset.set(
+                        (h1[8].x - state.interaction.pinchStart.x) * -w,
+                        (h1[8].y - state.interaction.pinchStart.y) * -h,
+                        0
+                    );
+                } else { state.interaction.isPinching = false; }
+
+                // Two Hands for Zoom/Scale
+                if (results.multiHandLandmarks.length > 1) {
+                    const h2 = results.multiHandLandmarks[1];
+                    const handGap = Math.hypot(h1[0].x - h2[0].x, h1[0].y - h2[0].y);
+                    state.interaction.targetScale = THREE.MathUtils.mapLinear(handGap, 0.1, 0.8, 0.5, 20.0);
+                }
+            }
+        }
+
+        const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5 });
+        hands.onResults(onResults);
+
+        const videoElement = document.getElementById('input_video');
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+
+        /**
+         * CLOUD SAVING / SHARING
+         */
+        document.getElementById('btn-share').addEventListener('click', async () => {
+            if (!user) {
+                const modal = document.getElementById('share-modal');
+                modal.innerHTML = `<h3>Auth Needed</h3><p>Connecting to secure storage...</p><button onclick="this.parentElement.style.display='none'">Close</button>`;
+                modal.style.display = 'block';
+                await initAuth();
+                return;
+            }
+
+            const btn = document.getElementById('btn-share');
+            btn.innerText = "Saving to Galaxy...";
+            
+            const shareId = Math.random().toString(36).substring(2, 10);
+            const shareData = {
+                shape: state.shape,
+                bg: state.bg,
+                colorMode: state.colorMode,
+                color1: '#' + state.color1.getHexString(),
+                color2: '#' + state.color2.getHexString(),
+                timestamp: Date.now(),
+                creatorId: user.uid
+            };
+
+            try {
+                // RULE 1: Strict Paths
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shares', shareId), shareData);
+                const shareUrl = window.location.origin + window.location.pathname + "?s=" + shareId;
+                document.getElementById('share-url').value = shareUrl;
+                document.getElementById('share-modal').style.display = 'block';
+            } catch(e) { 
+                console.error("Firestore Save Failed:", e); 
+            } finally { 
+                btn.innerText = "Save & Share Link"; 
+            }
+        });
+
+        document.getElementById('btn-copy').addEventListener('click', () => {
+            const input = document.getElementById('share-url');
+            input.select();
+            document.execCommand('copy');
+            document.getElementById('btn-copy').innerText = "Copied!";
+            setTimeout(() => { document.getElementById('btn-copy').innerText = "Copy Link"; }, 2000);
+        });
+
+        document.getElementById('btn-close-modal').addEventListener('click', () => {
+            document.getElementById('share-modal').style.display = 'none';
+        });
+
+        /**
+         * ANIMATION LOOP
+         */
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+            
+            // Interaction Smoothing
+            state.interaction.currentScale = THREE.MathUtils.lerp(state.interaction.currentScale, state.interaction.targetScale, 0.1);
+            particleSystem.scale.setScalar(state.interaction.currentScale);
+            
+            if (state.interaction.isPinching) {
+                particleSystem.position.lerp(state.interaction.objStartPos.clone().add(state.interaction.offset), 0.1);
+            } else if (document.getElementById('toggle-rotate').checked) {
+                particleSystem.rotation.y += 0.002;
+            }
+
+            // Particle Physics
+            const pos = particleSystem.geometry.attributes.position.array;
+            const col = particleSystem.geometry.attributes.color.array;
+            const explode = state.interaction.explosion * 15;
+            const implode = state.interaction.implosion;
+
+            for (let i = 0; i < state.particleCount; i++) {
+                const i3 = i * 3;
+                let tx = targetPositions[i3], ty = targetPositions[i3+1], tz = targetPositions[i3+2];
+                
+                // Gesture modifiers
+                if (implode > 0.01) {
+                    tx = THREE.MathUtils.lerp(tx, 0, implode); 
+                    ty = THREE.MathUtils.lerp(ty, 0, implode); 
+                    tz = THREE.MathUtils.lerp(tz, 0, implode);
+                }
+                if (explode > 0.1) {
+                    tx += randoms[i3] * explode; 
+                    ty += randoms[i3+1] * explode; 
+                    tz += randoms[i3+2] * explode;
+                }
+                
+                // Interpolate to target
+                pos[i3] += (tx - pos[i3]) * 0.1; 
+                pos[i3+1] += (ty - pos[i3+1]) * 0.1; 
+                pos[i3+2] += (tz - pos[i3+2]) * 0.1;
+
+                // Color logic
+                const c = new THREE.Color();
+                if (state.colorMode === 'dynamic') {
+                    c.setHSL((time * 0.05 + i * 0.00005) % 1, 0.8, 0.6);
+                } else if (state.colorMode === 'solid') {
+                    c.copy(state.color1);
+                } else {
+                    c.lerpColors(state.color1, state.color2, (pos[i3+1] + 10) / 20);
+                }
+                
+                // Flash white on explosion
+                if (explode > 2) c.lerp(new THREE.Color(1,1,1), 0.6);
+                
+                col[i3] = c.r; col[i3+1] = c.g; col[i3+2] = c.b;
+            }
+
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+            particleSystem.geometry.attributes.color.needsUpdate = true;
+            
+            if (document.getElementById('toggle-bloom').checked) composer.render();
+            else renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start animation loop
+        animate();
+    </script>
+</body>
+</html>
