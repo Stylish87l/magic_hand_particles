@@ -120,7 +120,6 @@
         }
     </style>
     
-    <!-- Latest Three.js r182 (January 2026) -->
     <script async src="https://unpkg.com/es-module-shims@1.8.2/dist/es-module-shims.js"></script>
     <script type="importmap">
     {
@@ -130,9 +129,6 @@
         }
     }
     </script>
-    
-    <!-- Modern MediaPipe Tasks Vision (0.10.14 - latest stable) -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <video id="input_video" playsinline muted autoplay></video>
@@ -220,9 +216,12 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
-        const { FilesetResolver, HandLandmarker } = window.vision;
+        import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
-        // --- FIREBASE CREDENTIALS ---
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
         const firebaseConfig = {
             apiKey: "AIzaSyBLRlgXxOOYozGySfHNG9owFpmUEG6h84I",
             authDomain: "magic-particles-feaaf.firebaseapp.com",
@@ -233,31 +232,12 @@
             measurementId: "G-GKNK1FD1JY"
         };
 
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore, doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = 'cosmic-magic-labs';
         let currentUser = null;
 
-        async function initAuth() {
-            try {
-                await signInAnonymously(auth);
-            } catch (err) {
-                console.error("Auth failed:", err);
-            }
-        }
-
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            if (user) console.log("Authenticated:", user.uid);
-            loadSharedState();
-        });
-
-        // --- STATE ---
         const state = {
             particleCount: 25000,
             shape: 'galaxy',
@@ -281,7 +261,6 @@
             }
         };
 
-        // --- THREE.JS ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.z = 50;
@@ -319,7 +298,18 @@
         const warpPass = new ShaderPass(warpShader);
         composer.addPass(warpPass);
 
-        // Particles
+        let analyzer, dataArray;
+        function initAudio() {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                const ctx = new AudioContext();
+                const source = ctx.createMediaStreamSource(stream);
+                analyzer = ctx.createAnalyser();
+                analyzer.fftSize = 256;
+                source.connect(analyzer);
+                dataArray = new Uint8Array(analyzer.frequencyBinCount);
+            }).catch(() => console.log("Mic denied"));
+        }
+
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(state.particleCount * 3);
         const targets = new Float32Array(state.particleCount * 3);
@@ -347,7 +337,6 @@
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
 
-        // Shape generation
         function setShape(type) {
             state.shape = type;
             const count = state.particleCount;
@@ -384,7 +373,6 @@
         }
         setShape('galaxy');
 
-        // Recording 
         let mediaRecorder;
         let recordedChunks = [];
 
@@ -394,7 +382,7 @@
             return '';
         }
 
-        async function startRecording() {
+        function startRecording() {
             if (state.recording) return;
             const mimeType = getSupportedMimeType();
             if (!mimeType) return alert("No supported video format");
@@ -430,15 +418,14 @@
             setTimeout(() => mediaRecorder.stop(), 5000);
         }
 
-        // Hand Landmarker
         let handLandmarker = null;
         const videoElement = document.getElementById('input_video');
 
         async function initHandLandmarker() {
-            const fileset = await FilesetResolver.forVisionTasks(
+            const filesetResolver = await FilesetResolver.forVisionTasks(
                 "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
             );
-            handLandmarker = await HandLandmarker.createFromOptions(fileset, {
+            handLandmarker = await HandLandmarker.createFromOptions(filesetResolver, {
                 baseOptions: {
                     modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
                     delegate: "GPU"
@@ -448,9 +435,17 @@
             });
         }
 
-        function processFrame(timestamp) {
-            if (!handLandmarker) return;
+        let lerpExp = 0, lerpImp = 0;
+        function processHands(timestamp) {
+            if (!handLandmarker || videoElement.readyState < 2) {
+                requestAnimationFrame(processHands);
+                return;
+            }
             const results = handLandmarker.detectForVideo(videoElement, timestamp);
+
+            state.interaction.explosion = 0;
+            state.interaction.implosion = 0;
+            state.interaction.pinchActive = false;
 
             if (results.landmarks && results.landmarks.length > 0) {
                 const lm = results.landmarks[0];
@@ -489,11 +484,9 @@
                 }
             }
 
-            requestAnimationFrame(processFrame);
+            requestAnimationFrame(processHands);
         }
 
-        // Animation loop
-        let lerpExp = 0, lerpImp = 0;
         function animate() {
             requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
@@ -565,7 +558,6 @@
             composer.render();
         }
 
-        // Background update
         function updateBackground() {
             const v = document.getElementById('bg-selector').value;
             const colors = {
@@ -578,9 +570,8 @@
             renderer.setClearColor(colors[v] || 0x000000);
         }
 
-        // Share & load
         async function saveCloud() {
-            if (!currentUser) return alert("Auth required");
+            if (!currentUser) return alert("Please refresh to enable sharing");
             const shareId = Math.random().toString(36).substring(2, 10);
             const data = {
                 shape: state.shape,
@@ -616,7 +607,6 @@
             }
         }
 
-        // UI events
         document.getElementById('ui-toggle').onclick = () => document.getElementById('ui-panel').classList.toggle('hidden');
         document.getElementById('btn-close-ui').onclick = () => document.getElementById('ui-panel').classList.add('hidden');
         document.getElementById('shape-selector').onchange = e => setShape(e.target.value);
@@ -647,33 +637,20 @@
         };
         document.getElementById('btn-close-modal').onclick = () => document.getElementById('share-modal').style.display = 'none';
 
-        // Audio init
-        let analyzer, dataArray;
-        function initAudio() {
-            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-                const ctx = new AudioContext();
-                const source = ctx.createMediaStreamSource(stream);
-                analyzer = ctx.createAnalyser();
-                analyzer.fftSize = 256;
-                source.connect(analyzer);
-                dataArray = new Uint8Array(analyzer.frequencyBinCount);
-            });
-        }
-
-        // Start
         document.getElementById('start-btn').onclick = async () => {
             document.getElementById('loader').style.display = 'none';
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             videoElement.srcObject = stream;
             await videoElement.play();
+
             await initHandLandmarker();
-            processFrame(performance.now());
+            processHands(performance.now());
             animate();
         };
 
-        // Loader
         window.addEventListener('load', async () => {
-            await initAuth();
+            await signInAnonymously(auth).catch(() => {});
+            onAuthStateChanged(auth, user => { currentUser = user; loadSharedState(); });
             document.getElementById('status-text').innerText = "UNIVERSE STABILIZED.";
             document.getElementById('start-btn').style.display = 'block';
         });
